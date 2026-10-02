@@ -17,6 +17,10 @@ const PORT = process.env.NODE_ENV === 'production' && process.env.PORT ? Number(
 
 app.use(express.json({ limit: '20mb' }));
 
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 // Master VUC Model Registration Keypair (Ed25519)
 // Deterministic seed for master signer key
 const MODEL_SIGNER_SEED = new Uint8Array(32);
