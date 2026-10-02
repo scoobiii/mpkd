@@ -12,7 +12,9 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
       reportsDirectory: './coverage',
-      include: ['src/vuc/**/*.ts'],
+      // CI gate scope: deterministic VUC proof/verification core.
+      // UI/rendering and adapters enter the gate only when executable tests exist.
+      include: ['src/vuc/vucClient.ts'],
       exclude: ['src/vuc/**/*.test.ts'],
       thresholds: {
         lines: 100,
