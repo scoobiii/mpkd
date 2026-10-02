@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Box, Cpu, FileDown, Heart, ShieldCheck, Wind, Pin, PinOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { Layers, Box, Cpu, FileDown, Heart, ShieldCheck, Wind, Pin, PinOff, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 
 interface HeaderProps {
   activeTab: 'viewer3d' | 'editor2d' | 'ai_studio' | 'vuc_audit' | 'mep';
@@ -7,6 +7,7 @@ interface HeaderProps {
   onOpenStory: () => void;
   onOpenExport: () => void;
   onOpenHalton: () => void;
+  onOpenDocs?: () => void;
   isVucValid: boolean;
   isVisible?: boolean;
   isPinned?: boolean;
@@ -22,6 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenStory,
   onOpenExport,
   onOpenHalton,
+  onOpenDocs,
   isVucValid,
   isVisible = true,
   isPinned = false,
@@ -140,6 +142,17 @@ export const Header: React.FC<HeaderProps> = ({
               <Heart className="w-3 h-3 text-rose-400 fill-rose-400/30" />
               <span className="hidden md:inline">Thai Mee</span>
             </button>
+
+            {onOpenDocs && (
+              <button
+                onClick={onOpenDocs}
+                className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-emerald-300 bg-emerald-950/60 border border-emerald-800/60 rounded-md hover:bg-emerald-900/60 transition-colors whitespace-nowrap cursor-pointer"
+                title="Constituição VUC, Agentes e Roadmap de Sprints"
+              >
+                <BookOpen className="w-3 h-3 text-emerald-400" />
+                <span className="hidden sm:inline">VUC Docs</span>
+              </button>
+            )}
 
             <button
               onClick={onOpenExport}

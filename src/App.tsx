@@ -11,6 +11,7 @@ import { VUCVerificationInspector } from './components/VUCVerificationInspector'
 import { MEPSummaryPanel } from './components/MEPSummaryPanel';
 import { DeliverablesExportModal } from './components/DeliverablesExportModal';
 import { HaltonVentilationModal } from './components/HaltonVentilationModal';
+import { VucDocumentationModal } from './components/VucDocumentationModal';
 import { Flame, ShieldCheck, Layers, Cpu, Box, AlertTriangle, Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
   const [isStoryOpen, setIsStoryOpen] = useState<boolean>(false);
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
   const [isHaltonOpen, setIsHaltonOpen] = useState<boolean>(false);
+  const [isDocsOpen, setIsDocsOpen] = useState<boolean>(false);
 
   // Initial Benchmark Model Generator: Thai Mee High-Output Monolithe Suite
   const createBenchmarkModel = (): DesignModel => {
@@ -202,6 +204,7 @@ export default function App() {
         onOpenStory={() => setIsStoryOpen(true)}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenHalton={() => setIsHaltonOpen(true)}
+        onOpenDocs={() => setIsDocsOpen(true)}
         isVucValid={model.vucTrace?.status === 'VERIFIED_VALID'}
         isVisible={isHeaderVisible || isHeaderPinned}
         isPinned={isHeaderPinned}
@@ -245,6 +248,12 @@ export default function App() {
         isOpen={isExportOpen}
         onClose={() => setIsExportOpen(false)}
         model={model}
+      />
+
+      {/* VUC Constitution, Agents & Sprints Documentation Modal */}
+      <VucDocumentationModal
+        isOpen={isDocsOpen}
+        onClose={() => setIsDocsOpen(false)}
       />
     </div>
   );
