@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Box, Cpu, FileDown, Heart, ShieldCheck, Wind, Pin, PinOff, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
+import { Layers, Box, Cpu, FileDown, Heart, ShieldCheck, Wind, Pin, PinOff, ChevronDown, ChevronUp, BookOpen, FolderOpen, Code2 } from 'lucide-react';
 
 interface HeaderProps {
   activeTab: 'viewer3d' | 'editor2d' | 'ai_studio' | 'vuc_audit' | 'mep';
@@ -8,6 +8,9 @@ interface HeaderProps {
   onOpenExport: () => void;
   onOpenHalton: () => void;
   onOpenDocs?: () => void;
+  onOpenProjectFiles?: () => void;
+  onOpenRhinoCoverage?: () => void;
+  onOpenGrasshopperObjects?: () => void;
   isVucValid: boolean;
   isVisible?: boolean;
   isPinned?: boolean;
@@ -24,6 +27,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenExport,
   onOpenHalton,
   onOpenDocs,
+  onOpenProjectFiles,
+  onOpenRhinoCoverage,
+  onOpenGrasshopperObjects,
   isVucValid,
   isVisible = true,
   isPinned = false,

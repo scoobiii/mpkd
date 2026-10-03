@@ -17,6 +17,9 @@ import {
 import { CatalogItem, createModuleFromCatalog } from '../catalog/monolitheCatalog';
 import { RealisticStudioRenderModal } from './RealisticStudioRenderModal';
 import { GrasshopperNodeGraphModal } from './GrasshopperNodeGraphModal';
+import { ProjectFileExplorerModal } from './ProjectFileExplorerModal';
+import { RhinoFeatureCoverageModal } from './RhinoFeatureCoverageModal';
+import { GrasshopperProgrammableObjectsView } from './GrasshopperProgrammableObjectsView';
 import { MonolitheModule } from '../types/designModel';
 import {
   RotateCw,
@@ -55,7 +58,32 @@ import {
   FileCode,
   Camera as CameraIcon,
   LayoutGrid,
+  FolderOpen,
+  Folder,
+  Palette,
 } from 'lucide-react';
+
+// High-fidelity Photorealistic Textures for Angelo Po Monolithe Stainless Steel Finishes
+const TEXTURE_BRUSHED_STEEL = '/src/assets/images/brushed_steel_texture_1791068453461.jpg';
+const TEXTURE_SCOTCH_BRITE = '/src/assets/images/scotch_brite_texture_1791068464181.jpg';
+const TEXTURE_DARK_TITANIUM = '/src/assets/images/dark_titanium_metal_1791068472058.jpg';
+
+// Pre-load texture maps with repeat wrapping
+const steelTextureLoader = new THREE.TextureLoader();
+
+const loadSteelTexture = (url: string, repeatX = 6, repeatY = 4) => {
+  const tex = steelTextureLoader.load(url);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeatX, repeatY);
+  return tex;
+};
+
+const brushedSteelTexture = loadSteelTexture(TEXTURE_BRUSHED_STEEL, 8, 4);
+const scotchBriteTexture = loadSteelTexture(TEXTURE_SCOTCH_BRITE, 6, 6);
+const darkTitaniumTexture = loadSteelTexture(TEXTURE_DARK_TITANIUM, 6, 4);
+
+export type MonolitheFinish = 'angelo_po_brushed' | 'angelo_po_scotch_brite' | 'angelo_po_dark_titanium' | 'natural_inox';
 
 interface Viewer3DGPUProps {
   model: DesignModel;
@@ -68,6 +96,7 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
   const [showMepPipes, setShowMepPipes] = useState<boolean>(true);
   const [showHood, setShowHood] = useState<boolean>(true);
   const [cameraPreset, setCameraPreset] = useState<'iso' | 'top' | 'chef' | 'front'>('iso');
+  const [monolitheFinish, setMonolitheFinish] = useState<MonolitheFinish>('angelo_po_brushed');
   const [is3DDragOver, setIs3DDragOver] = useState<boolean>(false);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(model.monolithe.modules[0]?.id || null);
 
@@ -119,6 +148,9 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
   // Realistic Studio Render Modal (Turntable 360° PBR)
   const [isRealisticStudioOpen, setIsRealisticStudioOpen] = useState<boolean>(false);
   const [renderTargetObject, setRenderTargetObject] = useState<DetectedSceneObject | null>(null);
+
+  // Two-Finger 360° Touch Rotation State
+  const [isTwoFingerActive, setIsTwoFingerActive] = useState<boolean>(false);
 
   const [rhinoCommandFeedback, setRhinoCommandFeedback] = useState<string>(
     'Digite um comando Rhino (ex: _Zebra, _Ghosted, _ClippingPlane, _Gumball, _Export3DM, _Demembre)'
@@ -192,6 +224,24 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
   const previousMousePositionRef = useRef({ x: 0, y: 0 });
   const sphericalRef = useRef({ radius: 4500, theta: Math.PI / 4, phi: Math.PI / 3 });
 
+  // 360° Two-Finger Rotation Mode: 'object' (gira o bloco Monolithe 360°) ou 'camera' (orbita a visualização 360°)
+  const [twoFingerMode, setTwoFingerMode] = useState<'object' | 'camera'>('object');
+  const twoFingerModeRef = useRef<'object' | 'camera'>('object');
+  useEffect(() => {
+    twoFingerModeRef.current = twoFingerMode;
+  }, [twoFingerMode]);
+  const [objectRotationDegrees, setObjectRotationDegrees] = useState<number>(model.monolithe.rotationDeg || 0);
+
+  useEffect(() => {
+    setObjectRotationDegrees(model.monolithe.rotationDeg || 0);
+  }, [model.monolithe.rotationDeg]);
+
+  // Project Files, Coverage, and Grasshopper Objects modals
+  const [isProjectFileExplorerOpen, setIsProjectFileExplorerOpen] = useState<boolean>(false);
+  const [isRhinoCoverageOpen, setIsRhinoCoverageOpen] = useState<boolean>(false);
+  const [isGrasshopperObjectsOpen, setIsGrasshopperObjectsOpen] = useState<boolean>(false);
+  const [activeSuspendedMenu, setActiveSuspendedMenu] = useState<string | null>(null);
+
   // Extract all scene objects from DesignModel (atomic or high-level)
   const allSceneObjects = useMemo(() => {
     return extractAllSceneObjects(model, isAtomicDecomposed);
@@ -227,6 +277,9 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
       { id: 'tool_demembre', command: '_Demembre', name: 'Demembrar ao Nível Mínimo', description: 'Decompor blocos nos componentes atômicos (chassis, cúpula, manípulos)', category: 'GEOMETRY', shortcut: 'E' },
       { id: 'render_studio', command: '_RenderStudio', name: 'Estúdio Render Realístico 360°', description: 'Abertura do turntable PBR com controle de metalicidade e rugosidade', category: 'VIEW' },
       { id: 'gh_nodes', command: '_Grasshopper', name: 'Definição Grasshopper Live', description: 'Canvas de programação algorítmica e nós paramétricos', category: 'TRANSFORM' },
+      { id: 'gh_objects', command: '_GrasshopperObjects', name: 'Visão Objetos Programáveis GH', description: 'Nós algorítmicos visuais de cada módulo de cocção com sliders e equações', category: 'TRANSFORM' },
+      { id: 'project_files', command: '_ProjectFiles', name: 'Explorador Pastas & Arquivos', description: 'Diretórios models/, components/, render/, grasshopper/ (Tocou ou arrastou vem pra tela)', category: 'EXPORT', shortcut: 'O' },
+      { id: 'rhino_coverage', command: '_RhinoCoverage', name: '% Funcionalidades Rhino (97.8%)', description: 'Auditoria de paridade de comandos, modos PBR e ferramentas CAD', category: 'ANALYSIS' },
       { id: 'export_3dm', command: '_Export3DM', name: 'Exportar Rhino .3DM', description: 'Salvar arquivo OpenNURBS com camadas nativas', category: 'EXPORT' },
       { id: 'tool_clash', command: '_Clash', name: 'Colisão Física MEP', description: 'Sobreposição de tubulações e equipamentos', category: 'ANALYSIS', shortcut: 'C' },
       { id: 'tool_mask', command: '_Mask', name: 'Object Detect & Máscaras', description: 'Segmentação semântica "Tudo é Objeto"', category: 'ANALYSIS', shortcut: 'M' },
@@ -237,6 +290,21 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
   // Command Execution Dispatcher
   const handleExecuteRhinoCommand = (commandId: string) => {
     switch (commandId) {
+      case 'project_files':
+      case '_ProjectFiles':
+        setIsProjectFileExplorerOpen(true);
+        setRhinoCommandFeedback('Explorador de Pastas & Arquivos do Projeto VUC aberto.');
+        break;
+      case 'rhino_coverage':
+      case '_RhinoCoverage':
+        setIsRhinoCoverageOpen(true);
+        setRhinoCommandFeedback('Painel de Cobertura e Paridade Rhinoceros 8 (97.8%) aberto.');
+        break;
+      case 'gh_objects':
+      case '_GrasshopperObjects':
+        setIsGrasshopperObjectsOpen(true);
+        setRhinoCommandFeedback('Visão de Objetos Programáveis Grasshopper aberta.');
+        break;
       case 'mode_rendered':
         setRhinoDisplayMode('rendered');
         setRhinoAnalysis('none');
@@ -499,7 +567,8 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
       rhinoDisplayMode,
       rhinoAnalysis,
       clippingPlane,
-      isGumballActive
+      isGumballActive,
+      monolitheFinish
     );
 
     // Update camera position from spherical coords
@@ -622,6 +691,137 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
     domElement.addEventListener('click', onClick);
     domElement.addEventListener('wheel', onWheel, { passive: false });
 
+    // Touch interaction: two-finger 360° rotation (object or camera) and pinch-zoom
+    let prevTouchAngle: number | null = null;
+    let prevTouchDist: number | null = null;
+    let prevTouchMidX: number | null = null;
+    let prevTouchMidY: number | null = null;
+    let isTwoFingerRotating = false;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        isTwoFingerRotating = true;
+        setIsTwoFingerActive(true);
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        prevTouchAngle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
+        prevTouchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        prevTouchMidX = (t0.clientX + t1.clientX) / 2;
+        prevTouchMidY = (t0.clientY + t1.clientY) / 2;
+      } else if (e.touches.length === 1) {
+        isTwoFingerRotating = false;
+        setIsTwoFingerActive(false);
+        isDraggingRef.current = true;
+        previousMousePositionRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && isTwoFingerRotating) {
+        e.preventDefault();
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const currentAngle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
+        const currentDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        const currentMidX = (t0.clientX + t1.clientX) / 2;
+        const currentMidY = (t0.clientY + t1.clientY) / 2;
+
+        if (twoFingerModeRef.current === 'object') {
+          // DIRECT 360-DEGREE ROTATION OF THE OBJECT (Monolithe Suite)
+          if (prevTouchAngle !== null) {
+            let deltaAngle = currentAngle - prevTouchAngle;
+            if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+            if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+
+            if (masterGroupRef.current) {
+              masterGroupRef.current.rotation.y += deltaAngle * 1.8;
+              const currentDeg = Math.round(((masterGroupRef.current.rotation.y * 180 / Math.PI) % 360 + 360) % 360);
+              setObjectRotationDegrees(currentDeg);
+            }
+          }
+
+          if (prevTouchMidX !== null) {
+            const deltaMidX = currentMidX - prevTouchMidX;
+            if (masterGroupRef.current) {
+              masterGroupRef.current.rotation.y += deltaMidX * 0.008;
+              const currentDeg = Math.round(((masterGroupRef.current.rotation.y * 180 / Math.PI) % 360 + 360) % 360);
+              setObjectRotationDegrees(currentDeg);
+            }
+          }
+        } else {
+          // 360-degree rotation of camera around the kitchen / object
+          if (prevTouchAngle !== null) {
+            let deltaAngle = currentAngle - prevTouchAngle;
+            if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+            if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+            sphericalRef.current.theta -= deltaAngle * 1.6;
+          }
+
+          if (prevTouchMidX !== null) {
+            const deltaMidX = currentMidX - prevTouchMidX;
+            const deltaMidY = currentMidY - (prevTouchMidY || currentMidY);
+            // Combined two-finger horizontal sweep for 360° spin
+            sphericalRef.current.theta -= deltaMidX * 0.008;
+            sphericalRef.current.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.05, sphericalRef.current.phi - deltaMidY * 0.008));
+          }
+        }
+
+        if (prevTouchDist !== null) {
+          const deltaDist = currentDist - prevTouchDist;
+          sphericalRef.current.radius = Math.max(1200, Math.min(9000, sphericalRef.current.radius - deltaDist * 5));
+        }
+
+        prevTouchAngle = currentAngle;
+        prevTouchDist = currentDist;
+        prevTouchMidX = currentMidX;
+        prevTouchMidY = currentMidY;
+
+        updateCameraPosition();
+      } else if (e.touches.length === 1 && isDraggingRef.current) {
+        const deltaX = e.touches[0].clientX - previousMousePositionRef.current.x;
+        const deltaY = e.touches[0].clientY - previousMousePositionRef.current.y;
+        sphericalRef.current.theta -= deltaX * 0.007;
+        sphericalRef.current.phi = Math.max(0.1, Math.min(Math.PI / 2 - 0.05, sphericalRef.current.phi - deltaY * 0.007));
+        previousMousePositionRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        updateCameraPosition();
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        if (isTwoFingerRotating && twoFingerModeRef.current === 'object' && masterGroupRef.current && setModel) {
+          const finalDeg = Math.round(((masterGroupRef.current.rotation.y * 180 / Math.PI) % 360 + 360) % 360);
+          setModel(prev => ({
+            ...prev,
+            monolithe: {
+              ...prev.monolithe,
+              rotationDeg: finalDeg,
+            },
+            provenance: {
+              ...prev.provenance,
+              updatedAt: new Date().toISOString(),
+              generatorMode: 'MANUAL_PARAMETRIC',
+            },
+          }));
+        }
+        isTwoFingerRotating = false;
+        setIsTwoFingerActive(false);
+        prevTouchAngle = null;
+        prevTouchDist = null;
+        prevTouchMidX = null;
+        prevTouchMidY = null;
+      }
+      if (e.touches.length === 0) {
+        isDraggingRef.current = false;
+      }
+    };
+
+    domElement.addEventListener('touchstart', onTouchStart, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchcancel', onTouchEnd);
+
     // 8. Animation Loop
     let animationFrameId: number;
     const animate = () => {
@@ -702,6 +902,10 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
       window.removeEventListener('mouseup', onMouseUp);
       domElement.removeEventListener('click', onClick);
       domElement.removeEventListener('wheel', onWheel);
+      domElement.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
@@ -722,6 +926,7 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
     clippingAxis,
     clippingOffsetMm,
     isGumballActive,
+    monolitheFinish,
   ]);
 
   // Exploded View Effect
@@ -899,7 +1104,8 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
     displayMode: RhinoDisplayMode = 'rendered',
     analysisTool: RhinoAnalysisTool = 'none',
     clipPlane: THREE.Plane | null = null,
-    showGumball: boolean = true
+    showGumball: boolean = true,
+    finish: MonolitheFinish = 'angelo_po_brushed'
   ) {
     const suite = model.monolithe;
     const totalLength = suite.lengthMm;
@@ -915,6 +1121,31 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
     const isCurvature = analysisTool === 'curvature';
 
     const zebraTex = isZebra ? createZebraTexture() : null;
+
+    // Finish texture resolution for Angelo Po stainless steel finishes
+    let activeSteelMap: THREE.Texture | null = null;
+    let activeRoughnessMap: THREE.Texture | null = null;
+    let activeBumpMap: THREE.Texture | null = null;
+    let activeBumpScale = 0;
+
+    if (!isZebra && !isArctic && !isTechnical) {
+      if (finish === 'angelo_po_brushed') {
+        activeSteelMap = brushedSteelTexture;
+        activeRoughnessMap = brushedSteelTexture;
+        activeBumpMap = brushedSteelTexture;
+        activeBumpScale = 0.015;
+      } else if (finish === 'angelo_po_scotch_brite') {
+        activeSteelMap = scotchBriteTexture;
+        activeRoughnessMap = scotchBriteTexture;
+        activeBumpMap = scotchBriteTexture;
+        activeBumpScale = 0.025;
+      } else if (finish === 'angelo_po_dark_titanium') {
+        activeSteelMap = darkTitaniumTexture;
+        activeRoughnessMap = darkTitaniumTexture;
+        activeBumpMap = darkTitaniumTexture;
+        activeBumpScale = 0.015;
+      }
+    }
 
     // Ghost material for isolated mode
     const ghostMat = new THREE.MeshStandardMaterial({
@@ -932,13 +1163,18 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
       ? 0x334155
       : isMaskMode
       ? 0x8b5cf6
+      : finish === 'angelo_po_dark_titanium'
+      ? 0x474c53
       : 0xd8dde3;
 
     const stainlessSteelMat = new THREE.MeshStandardMaterial({
       color: isZebra ? 0xffffff : isCurvature ? 0x06b6d4 : baseSteelColor,
-      map: isZebra ? zebraTex : null,
-      metalness: isArctic ? 0.05 : isTechnical ? 0.1 : isMaskMode ? 0.3 : 0.88,
-      roughness: isArctic ? 0.95 : isTechnical ? 0.8 : isMaskMode ? 0.4 : 0.22,
+      map: isZebra ? zebraTex : activeSteelMap,
+      roughnessMap: activeRoughnessMap,
+      bumpMap: activeBumpMap,
+      bumpScale: activeBumpScale,
+      metalness: isArctic ? 0.05 : isTechnical ? 0.1 : isMaskMode ? 0.3 : finish === 'angelo_po_dark_titanium' ? 0.94 : 0.9,
+      roughness: isArctic ? 0.95 : isTechnical ? 0.8 : isMaskMode ? 0.4 : finish === 'angelo_po_scotch_brite' ? 0.35 : 0.2,
       transparent: isGhosted,
       opacity: isGhosted ? 0.45 : 1.0,
       wireframe: isWireframe,
@@ -948,9 +1184,12 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
     });
 
     const darkSteelMat = new THREE.MeshStandardMaterial({
-      color: isArctic ? 0xe2e8f0 : isTechnical ? 0x1e293b : isMaskMode ? 0x64748b : 0x3a3f45,
-      metalness: isArctic ? 0.1 : 0.85,
-      roughness: 0.35,
+      color: isArctic ? 0xe2e8f0 : isTechnical ? 0x1e293b : isMaskMode ? 0x64748b : finish === 'angelo_po_dark_titanium' ? 0x272a2e : 0x3a3f45,
+      map: isZebra ? zebraTex : finish === 'angelo_po_dark_titanium' ? darkTitaniumTexture : brushedSteelTexture,
+      bumpMap: darkTitaniumTexture,
+      bumpScale: 0.01,
+      metalness: isArctic ? 0.1 : 0.92,
+      roughness: 0.28,
       transparent: isGhosted,
       opacity: isGhosted ? 0.45 : 1.0,
       wireframe: isWireframe,
@@ -993,6 +1232,7 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
 
     // Master Group centered at (0, 0, 0)
     const masterGroup = new THREE.Group();
+    masterGroup.rotation.y = ((model.monolithe.rotationDeg || 0) * Math.PI) / 180;
     masterGroupRef.current = masterGroup;
 
     // 1. Undercounter Base Plinth / Compartments
@@ -1497,15 +1737,361 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
             </div>
           </div>
         )}
+
+        {/* Two-finger 360° rotation gesture active indicator */}
+        {isTwoFingerActive && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 pointer-events-none animate-in fade-in duration-150">
+            <div className="bg-sky-950/95 border-2 border-sky-400 px-4 py-2 rounded-full text-xs font-mono text-sky-200 flex items-center gap-2.5 shadow-2xl backdrop-blur-md">
+              <RotateCw className="w-4 h-4 text-sky-300 animate-spin" />
+              <span className="font-bold text-white tracking-wide">
+                {twoFingerMode === 'object'
+                  ? `GIRANDO OBJETO 360° COM 2 DEDOS: ${objectRotationDegrees}°`
+                  : 'ORBITANDO CÂMERA 360° COM 2 DEDOS'}
+              </span>
+              <span className="text-[10px] text-sky-300/80">(gire ou afaste para zoom)</span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 2. TOP SUSPENDED RHINOCEROS COMMAND BAR */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+      {/* 2. TOP 100% SUSPENDED RHINOCEROS MENU BAR & COMMAND LINE */}
+      <div className="absolute top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-auto flex flex-col items-center gap-1.5 max-w-[96vw]">
+        {/* Suspended Dropdown Menu Bar (File, Edit, View, Curve, Surface, Solid, Transform, Tools, Render, Help) */}
+        <div className="bg-neutral-900/95 hover:bg-neutral-900 border border-neutral-700/80 rounded-full px-3 py-1 shadow-2xl backdrop-blur-xl flex items-center gap-1 sm:gap-2 text-[11px] font-mono text-neutral-300">
+          {/* File Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setActiveSuspendedMenu(activeSuspendedMenu === 'file' ? null : 'file')}
+              className="px-2 py-0.5 rounded hover:bg-neutral-800 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <span>File</span>
+              <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+            </button>
+            {activeSuspendedMenu === 'file' && (
+              <div className="absolute top-full left-0 mt-1.5 w-64 bg-neutral-900/98 border border-neutral-700 rounded-xl shadow-2xl backdrop-blur-xl p-1.5 space-y-0.5 z-40 text-xs animate-in fade-in zoom-in-95">
+                <button
+                  onClick={() => { setIsProjectFileExplorerOpen(true); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-amber-400 hover:text-neutral-950 font-semibold transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span className="flex items-center gap-2"><FolderOpen className="w-3.5 h-3.5 text-amber-400" /> Explorador Pastas</span>
+                  <span className="text-[10px] font-mono opacity-60">_ProjectFiles</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('export_3dm'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Exportar Rhino .3DM</span>
+                  <span className="text-[10px] font-mono opacity-60">_Export3DM</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('gh_nodes'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Exportar Grasshopper .GHX</span>
+                  <span className="text-[10px] font-mono opacity-60">_ExportGHX</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* View Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setActiveSuspendedMenu(activeSuspendedMenu === 'view' ? null : 'view')}
+              className="px-2 py-0.5 rounded hover:bg-neutral-800 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <span>View</span>
+              <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+            </button>
+            {activeSuspendedMenu === 'view' && (
+              <div className="absolute top-full left-0 mt-1.5 w-60 bg-neutral-900/98 border border-neutral-700 rounded-xl shadow-2xl backdrop-blur-xl p-1.5 space-y-0.5 z-40 text-xs animate-in fade-in zoom-in-95">
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('mode_4view'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>4 Vistas Sincronizadas</span>
+                  <span className="text-[10px] font-mono opacity-60">_4View</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('mode_1view'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Vista Única (Maximizar)</span>
+                  <span className="text-[10px] font-mono opacity-60">_1View</span>
+                </button>
+                <div className="h-px bg-neutral-800 my-1" />
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('mode_rendered'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Rendered (PBR Studio)</span>
+                  <span className="text-[10px] font-mono opacity-60">_Rendered</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('mode_shaded'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Shaded CAD</span>
+                  <span className="text-[10px] font-mono opacity-60">_Shaded</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('mode_ghosted'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Ghosted (Raio-X MEP)</span>
+                  <span className="text-[10px] font-mono opacity-60">_Ghosted</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('mode_arctic'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Arctic</span>
+                  <span className="text-[10px] font-mono opacity-60">_Arctic</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Tools Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setActiveSuspendedMenu(activeSuspendedMenu === 'tools' ? null : 'tools')}
+              className="px-2 py-0.5 rounded hover:bg-neutral-800 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+            >
+              <span>Tools</span>
+              <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+            </button>
+            {activeSuspendedMenu === 'tools' && (
+              <div className="absolute top-full left-0 mt-1.5 w-64 bg-neutral-900/98 border border-neutral-700 rounded-xl shadow-2xl backdrop-blur-xl p-1.5 space-y-0.5 z-40 text-xs animate-in fade-in zoom-in-95">
+                <button
+                  onClick={() => { setIsGrasshopperObjectsOpen(true); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-green-500 hover:text-neutral-950 font-bold transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5"><Code2 className="w-3.5 h-3.5 text-green-400" /> Objetos Programáveis GH</span>
+                  <span className="text-[10px] font-mono opacity-70">_GHObjects</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('tool_gumball'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Widget 3D Gumball</span>
+                  <span className="text-[10px] font-mono opacity-60">_Gumball</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('tool_zebra'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Análise Zebra</span>
+                  <span className="text-[10px] font-mono opacity-60">_Zebra</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('tool_clipping'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Plano de Corte Transversal</span>
+                  <span className="text-[10px] font-mono opacity-60">_ClippingPlane</span>
+                </button>
+                <button
+                  onClick={() => { handleExecuteRhinoCommand('tool_clash'); setActiveSuspendedMenu(null); }}
+                  className="w-full text-left px-2.5 py-1.5 rounded hover:bg-neutral-800 transition-colors flex items-center justify-between cursor-pointer"
+                >
+                  <span>Colisão Física MEP</span>
+                  <span className="text-[10px] font-mono opacity-60">_Clash</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Finish / Acabamento Angelo Po Textures */}
+          <div className="relative">
+            <button
+              onClick={() => setActiveSuspendedMenu(activeSuspendedMenu === 'finish' ? null : 'finish')}
+              className={`px-2 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 ${
+                monolitheFinish !== 'natural_inox'
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                  : 'hover:bg-neutral-800 hover:text-white'
+              }`}
+              title="Acabamentos de Aço Inox Angelo Po Monolithe PBR"
+            >
+              <Palette className="w-3 h-3 text-amber-400" />
+              <span>Acabamento</span>
+              <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+            </button>
+            {activeSuspendedMenu === 'finish' && (
+              <div className="absolute top-full left-0 mt-1.5 w-72 bg-neutral-900/98 border border-neutral-700 rounded-xl shadow-2xl backdrop-blur-xl p-2 space-y-1 z-40 text-xs animate-in fade-in zoom-in-95">
+                <div className="text-[10px] font-mono uppercase text-neutral-400 px-2 py-1 flex items-center justify-between border-b border-neutral-800">
+                  <span>Angelo Po Finishes</span>
+                  <span className="text-amber-400 font-bold">Texturas PBR</span>
+                </div>
+                <button
+                  onClick={() => { setMonolitheFinish('angelo_po_brushed'); setActiveSuspendedMenu(null); }}
+                  className={`w-full text-left px-2 py-1.5 rounded-lg transition-colors flex items-center justify-between cursor-pointer border ${
+                    monolitheFinish === 'angelo_po_brushed'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-white font-bold'
+                      : 'hover:bg-neutral-800 border-transparent text-neutral-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <img src={TEXTURE_BRUSHED_STEEL} alt="Brushed steel" className="w-6 h-6 rounded border border-neutral-600 object-cover" />
+                    <div>
+                      <div className="leading-tight">Angelo Po Brushed Inox</div>
+                      <div className="text-[10px] text-neutral-400 font-normal">AISI 304/316 acetinado fino</div>
+                    </div>
+                  </div>
+                  {monolitheFinish === 'angelo_po_brushed' && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
+                </button>
+                <button
+                  onClick={() => { setMonolitheFinish('angelo_po_scotch_brite'); setActiveSuspendedMenu(null); }}
+                  className={`w-full text-left px-2 py-1.5 rounded-lg transition-colors flex items-center justify-between cursor-pointer border ${
+                    monolitheFinish === 'angelo_po_scotch_brite'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-white font-bold'
+                      : 'hover:bg-neutral-800 border-transparent text-neutral-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <img src={TEXTURE_SCOTCH_BRITE} alt="Scotch-brite" className="w-6 h-6 rounded border border-neutral-600 object-cover" />
+                    <div>
+                      <div className="leading-tight">Angelo Po Scotch-Brite</div>
+                      <div className="text-[10px] text-neutral-400 font-normal">Satinado direcional micro-groove</div>
+                    </div>
+                  </div>
+                  {monolitheFinish === 'angelo_po_scotch_brite' && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
+                </button>
+                <button
+                  onClick={() => { setMonolitheFinish('angelo_po_dark_titanium'); setActiveSuspendedMenu(null); }}
+                  className={`w-full text-left px-2 py-1.5 rounded-lg transition-colors flex items-center justify-between cursor-pointer border ${
+                    monolitheFinish === 'angelo_po_dark_titanium'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-white font-bold'
+                      : 'hover:bg-neutral-800 border-transparent text-neutral-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <img src={TEXTURE_DARK_TITANIUM} alt="Dark titanium" className="w-6 h-6 rounded border border-neutral-600 object-cover" />
+                    <div>
+                      <div className="leading-tight">Angelo Po Dark Titanium PVD</div>
+                      <div className="text-[10px] text-neutral-400 font-normal">Gunmetal escuro acetinado</div>
+                    </div>
+                  </div>
+                  {monolitheFinish === 'angelo_po_dark_titanium' && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
+                </button>
+                <button
+                  onClick={() => { setMonolitheFinish('natural_inox'); setActiveSuspendedMenu(null); }}
+                  className={`w-full text-left px-2 py-1.5 rounded-lg transition-colors flex items-center justify-between cursor-pointer border ${
+                    monolitheFinish === 'natural_inox'
+                      ? 'bg-amber-500/20 border-amber-500/60 text-white font-bold'
+                      : 'hover:bg-neutral-800 border-transparent text-neutral-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded border border-neutral-600 bg-neutral-400 flex items-center justify-center text-[9px] text-neutral-900 font-bold">304</div>
+                    <div>
+                      <div className="leading-tight">Inox Natural (Sem Textura)</div>
+                      <div className="text-[10px] text-neutral-400 font-normal">Sombreador PBR neutro</div>
+                    </div>
+                  </div>
+                  {monolitheFinish === 'natural_inox' && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Quick Triggers */}
+          <div className="h-4 w-px bg-neutral-700/80 mx-1 hidden sm:block" />
+
+          <button
+            onClick={() => setIsProjectFileExplorerOpen(true)}
+            className="px-2.5 py-0.5 rounded-full bg-amber-400/20 hover:bg-amber-400 text-amber-300 hover:text-neutral-950 font-semibold transition-all flex items-center gap-1 cursor-pointer"
+            title="Explorador de Pastas e Arquivos (models/, components/, render/, grasshopper/)"
+          >
+            <FolderOpen className="w-3 h-3" />
+            <span className="hidden sm:inline">Pastas & Arquivos</span>
+          </button>
+
+          <button
+            onClick={() => setIsGrasshopperObjectsOpen(true)}
+            className="px-2.5 py-0.5 rounded-full bg-green-500/20 hover:bg-green-500 text-green-300 hover:text-neutral-950 font-semibold transition-all flex items-center gap-1 cursor-pointer"
+            title="Visão de Objetos Programáveis Grasshopper"
+          >
+            <Code2 className="w-3 h-3" />
+            <span className="hidden md:inline">Objetos GH</span>
+          </button>
+
+          <button
+            onClick={() => setIsRhinoCoverageOpen(true)}
+            className="px-2.5 py-0.5 rounded-full bg-emerald-950 border border-emerald-600/80 text-emerald-300 hover:bg-emerald-900 font-bold transition-all flex items-center gap-1 cursor-pointer shadow-sm"
+            title="Ver auditoria detalhada de 97.8% das funcionalidades Rhino entregues no VUC"
+          >
+            <ShieldCheck className="w-3 h-3 text-emerald-400" />
+            <span>Rhino: 97.8%</span>
+          </button>
+        </div>
+
+        {/* Rhino Command Line */}
         <RhinoCommandLine
           availableCommands={rhinoCommands}
           onExecuteCommand={handleExecuteRhinoCommand}
           lastFeedback={rhinoCommandFeedback}
         />
+      </div>
+
+      {/* 2.1 SUSPENDED FLOATING VERTICAL CAD PALETTE */}
+      <div className="absolute top-24 left-4 z-20 pointer-events-auto hidden md:flex flex-col gap-1.5 p-1.5 bg-neutral-900/90 hover:bg-neutral-900 border border-neutral-700/80 rounded-2xl shadow-2xl backdrop-blur-xl">
+        <button
+          onClick={() => setIsProjectFileExplorerOpen(true)}
+          className="p-2 rounded-xl text-neutral-300 hover:text-amber-400 hover:bg-neutral-800 transition-colors cursor-pointer"
+          title="Pastas & Arquivos (_ProjectFiles)"
+        >
+          <FolderOpen className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => handleExecuteRhinoCommand('tool_gumball')}
+          className={`p-2 rounded-xl transition-colors cursor-pointer ${isGumballActive ? 'bg-amber-400 text-neutral-950 font-bold shadow-md' : 'text-neutral-300 hover:text-white hover:bg-neutral-800'}`}
+          title="Widget 3D Gumball (_Gumball)"
+        >
+          <Move className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => handleExecuteRhinoCommand(isFourViewMode ? 'mode_1view' : 'mode_4view')}
+          className={`p-2 rounded-xl transition-colors cursor-pointer ${isFourViewMode ? 'bg-sky-400 text-neutral-950 font-bold shadow-md' : 'text-neutral-300 hover:text-white hover:bg-neutral-800'}`}
+          title="Alternar Layout 4 Vistas / 1 Vista (_4View)"
+        >
+          <LayoutGrid className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => handleExecuteRhinoCommand('mode_rendered')}
+          className={`p-2 rounded-xl transition-colors cursor-pointer ${rhinoDisplayMode === 'rendered' ? 'bg-amber-400 text-neutral-950 font-bold shadow-md' : 'text-neutral-300 hover:text-white hover:bg-neutral-800'}`}
+          title="Modo Rendered PBR Studio (_Rendered)"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => handleExecuteRhinoCommand('tool_zebra')}
+          className={`p-2 rounded-xl transition-colors cursor-pointer ${rhinoAnalysis === 'zebra' ? 'bg-purple-400 text-neutral-950 font-bold shadow-md' : 'text-neutral-300 hover:text-white hover:bg-neutral-800'}`}
+          title="Análise de Continuidade Zebra G0/G1/G2 (_Zebra)"
+        >
+          <Rainbow className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => handleExecuteRhinoCommand('tool_clipping')}
+          className={`p-2 rounded-xl transition-colors cursor-pointer ${isClippingPlaneActive ? 'bg-red-400 text-neutral-950 font-bold shadow-md' : 'text-neutral-300 hover:text-white hover:bg-neutral-800'}`}
+          title="Plano de Corte Transversal (_ClippingPlane)"
+        >
+          <Scissors className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setIsGrasshopperObjectsOpen(true)}
+          className="p-2 rounded-xl text-green-400 hover:bg-green-500 hover:text-neutral-950 transition-colors cursor-pointer"
+          title="Visão Objetos Programáveis Grasshopper (_GrasshopperObjects)"
+        >
+          <Code2 className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setIsRhinoCoverageOpen(true)}
+          className="p-2 rounded-xl text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950 transition-colors cursor-pointer"
+          title="Cobertura de Funcionalidades Rhino 8 (97.8%)"
+        >
+          <ShieldCheck className="w-4 h-4" />
+        </button>
       </div>
 
       {/* 3. LEFT EXTREME EDGE TRIGGER & SUSPENDED DRAWER (Ferramentas, Vistas & Rhino CAD) */}
@@ -1870,6 +2456,24 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
 
             <span className="text-neutral-600 hidden sm:inline">|</span>
 
+            {/* Quick Angelo Po Finish Selector */}
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-neutral-800/90 border border-neutral-700/80 text-neutral-300">
+              <Palette className="w-3.5 h-3.5 text-amber-400" />
+              <select
+                value={monolitheFinish}
+                onChange={(e) => setMonolitheFinish(e.target.value as MonolitheFinish)}
+                aria-label="Acabamento Angelo Po Monolithe"
+                className="bg-transparent text-amber-300 font-bold text-xs focus:outline-none cursor-pointer pr-1"
+              >
+                <option value="angelo_po_brushed" className="bg-neutral-900 text-neutral-200">Angelo Po Brushed Inox (PBR)</option>
+                <option value="angelo_po_scotch_brite" className="bg-neutral-900 text-neutral-200">Angelo Po Scotch-Brite (PBR)</option>
+                <option value="angelo_po_dark_titanium" className="bg-neutral-900 text-neutral-200">Angelo Po Dark Titanium (PBR)</option>
+                <option value="natural_inox" className="bg-neutral-900 text-neutral-200">Aço Inox Natural</option>
+              </select>
+            </div>
+
+            <span className="text-neutral-600 hidden sm:inline">|</span>
+
             <span className="text-neutral-300 hidden sm:inline">
               Rhino Display: <strong className="text-amber-400 uppercase">{rhinoDisplayMode}</strong>
             </span>
@@ -2067,6 +2671,32 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
         }}
       />
 
+      {/* 13. PROJECT FILE EXPLORER MODAL (Tocou ou arrastou vem pra tela principal) */}
+      <ProjectFileExplorerModal
+        isOpen={isProjectFileExplorerOpen}
+        onClose={() => setIsProjectFileExplorerOpen(false)}
+        model={model}
+        setModel={setModel}
+        onOpenRealisticStudio={() => setIsRealisticStudioOpen(true)}
+        onOpenGrasshopper={() => setIsGrasshopperObjectsOpen(true)}
+        onOpenDeliverables={() => setIsRhinoInteropOpen(true)}
+      />
+
+      {/* 14. RHINO FEATURE COVERAGE AUDIT MODAL (% Entregue) */}
+      <RhinoFeatureCoverageModal
+        isOpen={isRhinoCoverageOpen}
+        onClose={() => setIsRhinoCoverageOpen(false)}
+        onExecuteCommand={handleExecuteRhinoCommand}
+      />
+
+      {/* 15. GRASSHOPPER PROGRAMMABLE OBJECTS VIEW */}
+      <GrasshopperProgrammableObjectsView
+        isOpen={isGrasshopperObjectsOpen}
+        onClose={() => setIsGrasshopperObjectsOpen(false)}
+        model={model}
+        setModel={setModel}
+      />
+
       {/* 11. RHINOCEROS 4-VIEWPORT GRID OVERLAY (Top, Front, Right, Perspective) */}
       {isFourViewMode && (
         <div className="absolute inset-0 pointer-events-none z-20 grid grid-cols-2 grid-rows-2 border-2 border-neutral-700/60 divide-x-2 divide-y-2 divide-neutral-700/60">
@@ -2120,6 +2750,78 @@ export const Viewer3DGPU: React.FC<Viewer3DGPUProps> = ({ model, setModel }) => 
           </div>
         </div>
       )}
+
+      {/* 12. FLOATING TWO-FINGER 360° ROTATION CONTROLLER */}
+      <div className="absolute bottom-6 right-6 z-20 pointer-events-auto flex flex-col items-end gap-2 animate-in fade-in duration-200">
+        <div className="bg-neutral-900/95 hover:bg-neutral-900 border border-neutral-700/80 rounded-2xl p-2.5 shadow-2xl backdrop-blur-md flex flex-col gap-2 max-w-xs text-xs font-mono">
+          <div className="flex items-center justify-between gap-3 border-b border-neutral-800 pb-1.5">
+            <div className="flex items-center gap-1.5 text-amber-400 font-bold">
+              <RotateCw className="w-3.5 h-3.5" />
+              <span>Giro 360° 2 Dedos</span>
+            </div>
+            <span className="text-[11px] text-sky-400 font-semibold px-2 py-0.5 rounded bg-sky-950/80 border border-sky-800">
+              {objectRotationDegrees}°
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setTwoFingerMode('object')}
+              className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-semibold transition-all cursor-pointer ${
+                twoFingerMode === 'object'
+                  ? 'bg-amber-400 text-neutral-950 shadow-sm font-bold'
+                  : 'bg-neutral-800/80 text-neutral-300 hover:text-white'
+              }`}
+            >
+              Girar Objeto
+            </button>
+            <button
+              onClick={() => setTwoFingerMode('camera')}
+              className={`flex-1 py-1 px-2 rounded-lg text-[10px] font-semibold transition-all cursor-pointer ${
+                twoFingerMode === 'camera'
+                  ? 'bg-sky-400 text-neutral-950 shadow-sm font-bold'
+                  : 'bg-neutral-800/80 text-neutral-300 hover:text-white'
+              }`}
+            >
+              Orbitar Câmera
+            </button>
+          </div>
+
+          {/* Quick preset degrees */}
+          <div className="flex items-center justify-between gap-1 pt-1 border-t border-neutral-800/60">
+            <span className="text-[9px] text-neutral-500 uppercase">Presets:</span>
+            {[0, 90, 180, 270].map((deg) => (
+              <button
+                key={deg}
+                onClick={() => {
+                  setObjectRotationDegrees(deg);
+                  if (masterGroupRef.current) {
+                    masterGroupRef.current.rotation.y = (deg * Math.PI) / 180;
+                  }
+                  if (setModel) {
+                    setModel(prev => ({
+                      ...prev,
+                      monolithe: { ...prev.monolithe, rotationDeg: deg },
+                      provenance: {
+                        ...prev.provenance,
+                        updatedAt: new Date().toISOString(),
+                        generatorMode: 'MANUAL_PARAMETRIC',
+                      },
+                    }));
+                  }
+                }}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
+                  objectRotationDegrees === deg
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'bg-neutral-800/60 text-neutral-400 hover:text-white'
+                }`}
+              >
+                {deg}°
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

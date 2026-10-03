@@ -56,19 +56,18 @@ export function lookupTokenId(token: string): number {
 export async function sha256Hex(input: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(input);
-  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
-    const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  if (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.subtle) {
+    try {
+      const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch {
+      // Fallback to pure JS if subtle.digest fails
+      return pureJsSha256(input);
+    }
   }
-  // Fallback for node environment
-  try {
-    const { createHash } = await import('crypto');
-    return createHash('sha256').update(input).digest('hex');
-  } catch {
-    // Pure JS fallback if crypto module is unavailable
-    return pureJsSha256(input);
-  }
+  // Pure JS fallback
+  return pureJsSha256(input);
 }
 
 // Minimal deterministic pure-JS SHA-256 fallback

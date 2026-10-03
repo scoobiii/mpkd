@@ -18,6 +18,24 @@ import {
   Maximize2
 } from 'lucide-react';
 
+// Angelo Po Monolithe High-Fidelity Textures
+const TEXTURE_BRUSHED_STEEL = '/src/assets/images/brushed_steel_texture_1791068453461.jpg';
+const TEXTURE_SCOTCH_BRITE = '/src/assets/images/scotch_brite_texture_1791068464181.jpg';
+const TEXTURE_DARK_TITANIUM = '/src/assets/images/dark_titanium_metal_1791068472058.jpg';
+
+const studioTextureLoader = new THREE.TextureLoader();
+const loadStudioTex = (url: string, repeat = 4) => {
+  const tex = studioTextureLoader.load(url);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeat, repeat);
+  return tex;
+};
+
+const studioBrushedTex = loadStudioTex(TEXTURE_BRUSHED_STEEL, 4);
+const studioScotchBriteTex = loadStudioTex(TEXTURE_SCOTCH_BRITE, 4);
+const studioDarkTitaniumTex = loadStudioTex(TEXTURE_DARK_TITANIUM, 4);
+
 interface RealisticStudioRenderModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -39,9 +57,10 @@ export const RealisticStudioRenderModal: React.FC<RealisticStudioRenderModalProp
   const [metalness, setMetalness] = useState<number>(0.9);
   const [roughness, setRoughness] = useState<number>(0.2);
   const [clearcoat, setClearcoat] = useState<number>(0.3);
-  const [finishGrade, setFinishGrade] = useState<'scotch_brite' | 'mirror' | 'matte' | 'brass'>('scotch_brite');
+  const [finishGrade, setFinishGrade] = useState<'angelo_po_brushed' | 'scotch_brite' | 'dark_titanium' | 'mirror' | 'matte' | 'brass'>('angelo_po_brushed');
   const [isRenderingShot, setIsRenderingShot] = useState<boolean>(false);
   const [cameraZoom, setCameraZoom] = useState<number>(1.0);
+  const [isTwoFingerRotatingState, setIsTwoFingerRotatingState] = useState<boolean>(false);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -132,7 +151,7 @@ export const RealisticStudioRenderModal: React.FC<RealisticStudioRenderModalProp
     scene.add(meshGroup);
     meshGroupRef.current = meshGroup;
 
-    buildTurntableMesh(meshGroup, targetObject, targetModule, targetSubComponent, metalness, roughness, clearcoat);
+    buildTurntableMesh(meshGroup, targetObject, targetModule, targetSubComponent, metalness, roughness, clearcoat, finishGrade);
 
     // 7. Mouse drag to orbit
     let isDragging = false;
@@ -158,13 +177,91 @@ export const RealisticStudioRenderModal: React.FC<RealisticStudioRenderModalProp
       isDragging = false;
     };
 
+    // 7.1 Touch interaction: two-finger 360° turntable spin and pinch zoom
+    let prevTouchAngle: number | null = null;
+    let prevTouchDist: number | null = null;
+    let prevTouchMidX: number | null = null;
+    let isTwoFingerRotating = false;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        isTwoFingerRotating = true;
+        setIsTwoFingerRotatingState(true);
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        prevTouchAngle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
+        prevTouchDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        prevTouchMidX = (t0.clientX + t1.clientX) / 2;
+      } else if (e.touches.length === 1) {
+        isDragging = true;
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length === 2 && isTwoFingerRotating) {
+        e.preventDefault();
+        const t0 = e.touches[0];
+        const t1 = e.touches[1];
+        const currentAngle = Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX);
+        const currentDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+        const currentMidX = (t0.clientX + t1.clientX) / 2;
+
+        if (prevTouchAngle !== null) {
+          let deltaAngle = currentAngle - prevTouchAngle;
+          if (deltaAngle > Math.PI) deltaAngle -= 2 * Math.PI;
+          if (deltaAngle < -Math.PI) deltaAngle += 2 * Math.PI;
+          // 360-degree rotation of the turntable object!
+          meshGroup.rotation.y += deltaAngle * 1.8;
+        }
+
+        if (prevTouchMidX !== null) {
+          const deltaMidX = currentMidX - prevTouchMidX;
+          meshGroup.rotation.y += deltaMidX * 0.008;
+        }
+
+        if (prevTouchDist !== null) {
+          const deltaDist = currentDist - prevTouchDist;
+          camera.position.z = Math.max(700, Math.min(2600, camera.position.z - deltaDist * 2.5));
+        }
+
+        prevTouchAngle = currentAngle;
+        prevTouchDist = currentDist;
+        prevTouchMidX = currentMidX;
+      } else if (e.touches.length === 1 && isDragging) {
+        const deltaX = e.touches[0].clientX - previousMousePosition.x;
+        const deltaY = e.touches[0].clientY - previousMousePosition.y;
+        meshGroup.rotation.y += deltaX * 0.008;
+        meshGroup.rotation.x = Math.max(-0.4, Math.min(0.6, meshGroup.rotation.x + deltaY * 0.008));
+        previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length < 2) {
+        isTwoFingerRotating = false;
+        setIsTwoFingerRotatingState(false);
+        prevTouchAngle = null;
+        prevTouchDist = null;
+        prevTouchMidX = null;
+      }
+      if (e.touches.length === 0) {
+        isDragging = false;
+      }
+    };
+
     container.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+    container.addEventListener('touchstart', onTouchStart, { passive: false });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchcancel', onTouchEnd);
 
     // 8. Animation loop
     const animate = () => {
-      if (isRotating && !isDragging) {
+      if (isRotating && !isDragging && !isTwoFingerRotating) {
         meshGroup.rotation.y += 0.005;
       }
       renderer.render(scene, camera);
@@ -177,9 +274,13 @@ export const RealisticStudioRenderModal: React.FC<RealisticStudioRenderModalProp
       container.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+      container.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      window.removeEventListener('touchcancel', onTouchEnd);
       renderer.dispose();
     };
-  }, [isOpen, targetObject, targetModule, targetSubComponent]);
+  }, [isOpen, targetObject, targetModule, targetSubComponent, finishGrade]);
 
   // Update materials when sliders change
   useEffect(() => {
@@ -233,11 +334,21 @@ export const RealisticStudioRenderModal: React.FC<RealisticStudioRenderModalProp
           <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
 
           {/* Floating HUD tags on 3D Viewport */}
-          <div className="absolute top-4 left-4 flex items-center gap-2 pointer-events-none">
+          <div className="absolute top-4 left-4 flex items-center gap-2 pointer-events-none flex-wrap">
             <span className="px-3 py-1 bg-amber-500/20 text-amber-400 border border-amber-500/40 rounded-full text-[11px] font-mono font-bold flex items-center gap-1.5 shadow-lg backdrop-blur-md">
               <Sparkles className="w-3.5 h-3.5" />
               STUDIO PBR TURNTABLE 360°
             </span>
+            {isTwoFingerRotatingState ? (
+              <span className="px-3 py-1 bg-sky-500/30 text-sky-300 border border-sky-400 rounded-full text-[11px] font-mono font-bold flex items-center gap-1.5 shadow-lg backdrop-blur-md animate-pulse">
+                <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                GIRO 360° COM 2 DEDOS ATIVO
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 bg-neutral-900/80 text-sky-400 border border-sky-800/80 rounded-full text-[10px] font-mono backdrop-blur-md">
+                Giro 360° com 2 dedos suportado
+              </span>
+            )}
             <span className="px-2.5 py-1 bg-neutral-900/80 text-neutral-300 border border-neutral-700 rounded-full text-[10px] font-mono backdrop-blur-md">
               ACES Filmic Tone Mapping
             </span>
@@ -258,7 +369,7 @@ export const RealisticStudioRenderModal: React.FC<RealisticStudioRenderModalProp
 
               <div className="h-4 w-px bg-neutral-800 mx-1" />
 
-              <span className="text-[10px] text-neutral-400 px-1 font-mono">Arraste para rotacionar livremente</span>
+              <span className="text-[10px] text-neutral-400 px-1 font-mono">Gire 360° com 2 dedos ou arraste livremente</span>
             </div>
 
             <button
@@ -365,9 +476,23 @@ export const RealisticStudioRenderModal: React.FC<RealisticStudioRenderModalProp
               <div className="grid grid-cols-2 gap-1.5 text-[11px] font-mono">
                 <button
                   onClick={() => {
+                    setFinishGrade('angelo_po_brushed');
+                    setMetalness(0.90);
+                    setRoughness(0.20);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg border text-left transition-colors ${
+                    finishGrade === 'angelo_po_brushed'
+                      ? 'bg-amber-400/20 border-amber-400 text-amber-300 font-bold'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                  }`}
+                >
+                  Angelo Po Brushed Inox
+                </button>
+                <button
+                  onClick={() => {
                     setFinishGrade('scotch_brite');
-                    setMetalness(0.92);
-                    setRoughness(0.24);
+                    setMetalness(0.88);
+                    setRoughness(0.30);
                   }}
                   className={`px-2.5 py-1.5 rounded-lg border text-left transition-colors ${
                     finishGrade === 'scotch_brite'
@@ -375,7 +500,21 @@ export const RealisticStudioRenderModal: React.FC<RealisticStudioRenderModalProp
                       : 'bg-neutral-950 border-neutral-800 text-neutral-400'
                   }`}
                 >
-                  AISI 304 Scotch-Brite
+                  Angelo Po Scotch-Brite
+                </button>
+                <button
+                  onClick={() => {
+                    setFinishGrade('dark_titanium');
+                    setMetalness(0.94);
+                    setRoughness(0.25);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg border text-left transition-colors ${
+                    finishGrade === 'dark_titanium'
+                      ? 'bg-amber-400/20 border-amber-400 text-amber-300 font-bold'
+                      : 'bg-neutral-950 border-neutral-800 text-neutral-400'
+                  }`}
+                >
+                  Angelo Po Dark Titanium
                 </button>
                 <button
                   onClick={() => {
@@ -516,11 +655,36 @@ function buildTurntableMesh(
   targetSubComponent?: SubComponentDetail | null,
   metalness: number = 0.9,
   roughness: number = 0.2,
-  clearcoat: number = 0.3
+  clearcoat: number = 0.3,
+  finishGrade: 'angelo_po_brushed' | 'scotch_brite' | 'dark_titanium' | 'mirror' | 'matte' | 'brass' = 'angelo_po_brushed'
 ) {
-  // Common stainless steel material
+  // Common stainless steel material with Angelo Po textures
+  let steelMap: THREE.Texture | null = null;
+  let steelBump: THREE.Texture | null = null;
+  let bumpScale = 0;
+  let baseColor = 0xd8dee9;
+
+  if (finishGrade === 'angelo_po_brushed') {
+    steelMap = studioBrushedTex;
+    steelBump = studioBrushedTex;
+    bumpScale = 0.015;
+  } else if (finishGrade === 'scotch_brite') {
+    steelMap = studioScotchBriteTex;
+    steelBump = studioScotchBriteTex;
+    bumpScale = 0.025;
+  } else if (finishGrade === 'dark_titanium') {
+    steelMap = studioDarkTitaniumTex;
+    steelBump = studioDarkTitaniumTex;
+    bumpScale = 0.015;
+    baseColor = 0x474c53;
+  }
+
   const steelMat = new THREE.MeshStandardMaterial({
-    color: 0xd8dee9,
+    color: baseColor,
+    map: steelMap,
+    roughnessMap: steelMap,
+    bumpMap: steelBump,
+    bumpScale: bumpScale,
     metalness,
     roughness,
     envMapIntensity: 1.5,
