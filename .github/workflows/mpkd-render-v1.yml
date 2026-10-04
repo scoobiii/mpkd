@@ -21,7 +21,8 @@ jobs:
           import json
           p=json.load(open("schemas/mpkd-render-v1.json"))
           assert p["$id"]=="mpkd-render/v1"
-          states=set(p["properties"]["objects"]["items"]["properties"]["verification_state"]["enum"])
-          assert states == {"VERIFIED","PENDING","PLACEHOLDER","BLOCKED","CONFLICT"}
+          assert set(p["properties"]["objects"]["items"]["properties"]["verification_state"]["enum"]) == {"VERIFIED","PENDING","PLACEHOLDER","BLOCKED","CONFLICT"}
           print("mpkd-render/v1 manifest contract: OK")
           PY
+      - name: Node install lint build
+        run: npm install --no-audit --no-fund && npm run lint && npm run build

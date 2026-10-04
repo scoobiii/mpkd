@@ -13,10 +13,11 @@ class TestSceneBuilder(unittest.TestCase):
  def test_approval_fail_closed(self):
   x=m(); x["approved"]=True
   with self.assertRaises(ManifestError): validate_manifest(x)
- def test_material_profiles_cameras(self): self.assertEqual((len(MATERIALS),len(PROFILES),len(CAMERAS)),(6,3,4))
+ def test_materials_profiles_cameras(self):
+  self.assertEqual(len(MATERIAL_DEFINITIONS),6); self.assertEqual(len(PROFILE_PRESETS),3); self.assertEqual(len(CAMERA_PRESETS),4)
  def test_reports_hash_provenance(self):
   x=m(); p=SceneBuilder().build(x)
   with tempfile.TemporaryDirectory() as d:
-   a=write_reports(x,p,d); self.assertTrue((Path(d)/"preview.json").exists()); self.assertEqual(len(p["scene_hash"]),64); self.assertFalse(a["engineering_approval"])
+   a=write_reports(x,p,d); self.assertTrue((Path(d)/"preview.json").exists()); self.assertEqual(len(p["scene_hash"]),64); self.assertEqual(len(a["manifest_hash"]),64); self.assertFalse(a["engineering_approval"])
  def test_deterministic_hash(self): self.assertEqual(sha256(m()),sha256(m()))
 if __name__=="__main__": unittest.main()
