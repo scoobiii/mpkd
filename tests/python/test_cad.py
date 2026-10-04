@@ -106,7 +106,9 @@ class CadContractTests(unittest.TestCase):
         p, c = self.make_project()
         p.units = "cm"
         d = export_cad_document(p, c)
-        self.assertEqual(d.blocks[0].origin_mm, (20000.0, 10000.0, 25000.0))
+        origins = {block.instance_id: block.origin_mm for block in d.blocks}
+        self.assertEqual(origins["equip-02"], (20000.0, 10000.0, 25000.0))
+        self.assertEqual(origins["equip-01"], (10000.0, 10000.0, 0.0))
 
     def test_roundtrip(self):
         p, c = self.make_project()
