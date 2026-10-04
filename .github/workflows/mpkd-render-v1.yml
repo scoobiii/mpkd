@@ -15,11 +15,11 @@ jobs:
           python-version: "3.13"
       - name: Run behavioral render tests
         run: python -m unittest discover -s tests/python -p 'test_render_scene_builder.py' -v
-      - name: Validate manifest JSON
-        run: python - <<'PY'
+      - name: Validate manifest contract
+        run: |
           import json
           p=json.load(open("schemas/mpkd-render-v1.json"))
           assert p["$id"]=="mpkd-render/v1"
-          assert set(p["properties"]["objects"]["items"]["properties"]["verification_state"]["enum"]) == {"VERIFIED","PENDING","PLACEHOLDER","BLOCKED","CONFLICT"}
+          states=set(p["properties"]["objects"]["items"]["properties"]["verification_state"]["enum"])
+          assert states == {"VERIFIED","PENDING","PLACEHOLDER","BLOCKED","CONFLICT"}
           print("mpkd-render/v1 manifest contract: OK")
-          PY
